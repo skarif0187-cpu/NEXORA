@@ -47,6 +47,10 @@ jobs:
           mkdir -p ~/.android
           cp nexora-debug.keystore ~/.android/debug.keystore
 
+      - name: Add Share receiver (Android)
+        working-directory: src
+        run: python3 patch_android.py
+
       - name: Sync web files
         working-directory: src
         run: npx cap sync android
