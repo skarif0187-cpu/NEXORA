@@ -47,8 +47,10 @@ jobs:
           mkdir -p ~/.android
           cp nexora-debug.keystore ~/.android/debug.keystore
 
-      - name: Add Share receiver (Android)
+      - name: Share receiver, version number and signing (Android)
         working-directory: src
+        env:
+          VERSION_CODE: ${{ github.run_number }}
         run: python3 patch_android.py
 
       - name: Sync web files
@@ -61,17 +63,38 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
-      - name: Collect APK
-        run: cp src/android/app/build/outputs/apk/debug/app-debug.apk app-debug.apk
+      - name: Collect APK and check the signing key
+        run: |
+          cp src/android/app/build/outputs/apk/debug/app-debug.apk app-debug.apk
+          EXPECTED=$(keytool -list -v -keystore src/nexora-debug.keystore -storepass android | grep "SHA1:" | head -1)
+          ACTUAL=$(keytool -printcert -jarfile app-debug.apk | grep "SHA1:" | head -1)
+          echo "Expected key: $EXPECTED"
+          echo "APK key:      $ACTUAL"
+          if [ "$EXPECTED" != "$ACTUAL" ]; then echo "SIGNING KEY MISMATCH - stopping"; exit 1; fi
+
+      - name: Build the separate-install copy (different app id)
+        working-directory: src/android
+        run: |
+          sed -i -E 's/(applicationId[ =]+)"com\.nexoora\.app"/\1"com.nexoora.library"/' app/build.gradle
+          grep -n "applicationId" app/build.gradle
+          ./gradlew assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk ../../NEXORA-new-install.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: NEXORA-apk
-          path: app-debug.apk
+          path: |
+            app-debug.apk
+            NEXORA-new-install.apk
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v0.${{ github.run_number }}
           name: NEXORA v0.${{ github.run_number }}
-          files: app-debug.apk
+          body: |
+            app-debug.apk = update over your existing NEXORA (same app).
+            NEXORA-new-install.apk = separate NEXORA app. Use it only if the update says "conflicts with an existing package". It installs next to the old one and keeps its own data.
+          files: |
+            app-debug.apk
+            NEXORA-new-install.apk
